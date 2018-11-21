@@ -39,44 +39,95 @@ use App\Controller\ApiController;
 // use App\Entity\User;
 use Psr\Log\LoggerInterface;
 
+/**
+ * class AutoMapper
+ *
+ * This class defines a mapper class which is can be connected to any known entity.
+ *
+ * You have to call the method setEntityClass() on initialisation.
+ * The entity's property-map will then be generated dynamically.
+ */
 class AutoMapper extends AbstractMapper {
 
 	/**
-	 * 
-	 */
-	// protected $entityManager;
-
-	/**
-	 * 
+	 * This property determines if this mapper class shall deliver any setter routines or not.
+	 *
+	 * With $readOnly set to 'true', the method getPropertyMap() will only deliver getter classes
+	 * so that no changes to the database can be made.
 	 */
 	protected $readOnly;
 
+	/**
+	 * Note: The given controller class has to implement the routine getEntityManager().
+	 */
 	public function __construct( ApiController $controller, LoggerInterface $logger ) {
 		parent::__construct( '', $controller, $logger );
-
-		// $this->entityManager = $entityManager;
 		$this->readOnly = true;
 	}
 
-	public function setEntityClass( $entityClass ) {
+	/**
+	 * This function sets the entity class which shall be managed by this mapper class.
+	 *
+	 * @param string $class		Class name of the entity, e.g. 'App\Entity\TlArticle'.
+	 *							You may also pass the name of the database-table
+	 *								associated to the entity class,
+	 *								e.g. 'article' or 'tl_article' or 'TlArticle'
+	 * @return bool		True if and only if entity class was successfully recognized
+	 */
+	public function setEntityClass( $class = '') {
 
-		$this->entityClass = $entityClass;
+		if ( ! is_string( $class ) || $class == '' ) {
+			$this->entityClass = '';
+			return true;
+		}
 
-		return $this;
+		if ( strlen( $class) > 3 && substr( $class, 0, 3 ) == 'tl_' ) {
+			$class = substr( $class, 3 );
+		}
+
+		if ( class_exists( $class ) ) {
+			$this->entityClass = $class;
+		}
+		else if ( class_exists( "App\\Entity\\$class" ) ) {
+			$this->entityClass = "App\\Entity\\$class";
+		}
+		else if ( class_exists( 'App\Entity\Tl' . ucfirst( $class ) ) ) {
+			$this->entityClass = 'App\Entity\Tl' . ucfirst( $class );
+		}
+		else {
+			$this->entityClass = '';
+			return false;
+		}
+
+		return true;
 	}
 
+	/**
+	 * Method getPropertyMap()
+	 *
+	 * This function dynamically generates the property-map of the entity
+	 * which this mapper class is connected to.
+	 *
+	 * You have to call setEntityClass() before using this method.
+	 *
+	 * @param string $contextAction		Name of action map is to be used on processing
+	 * @return array	Property-map with all fields of the entity
+	 *						and the matching getter and setter routines,
+	 *						e.g. [ [ 'id', 'getId', null ], [ 'title', 'getTitle', 'setTitle' ] ]
+	 *					If the current instance is read-only, all setter routines will be set to 'null'.
+	 *					If the current instance isn't connected to any entity yet, an empty array will be returned.
+	 */
 	public function getPropertyMap( $contextAction ) {
 
 		if ( $this->entityClass == '' ) {
 			return [];
 		}
 
-		$map = [];
-
 		$meta = $this->controller->getEntityManager()->getClassMetadata( $this->entityClass );
 		$fieldNames = $meta->getFieldNames();
 		$identifier = $meta->getIdentifierColumnNames();
 
+		$map = [];
 		foreach ( $fieldNames as $field ) {
 			$mapping = [ $field, null, null ];
 			foreach ( [ '1' => 'get', '2' => 'set' ] as $i => $prefix ) {
@@ -86,7 +137,6 @@ class AutoMapper extends AbstractMapper {
 					}
 				}
 			}
-
 			$map[] = $mapping;
 		}
 

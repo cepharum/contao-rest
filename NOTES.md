@@ -1,8 +1,8 @@
 * Initialisation of project
 
 ```sh
-composer create-project symfony/skeleton contaoREST
-cd contaoREST
+composer create-project symfony/skeleton contao-rest
+cd contao-rest
 composer require symfony/web-server-bundle --dev
 composer require symfony/orm-pack
 composer require symfony/maker-bundle --dev
@@ -28,4 +28,56 @@ bin/console make:entity --regenerate App
 
 ```sh
 bash server-start.sh
+```
+
+# Relations within Contao's database:
+
+```json
+{
+	tl_article: {
+		config:	{
+			dataContainer:	"Table",
+			ptable:	"tl_page",
+			ctable:	["tl_content"],
+			sql:	{
+				keys:	["id"]
+			}
+		},
+		fields: {
+			id:	"key",
+			pid:	{
+				foreignKey:	"tl_page.title"
+				relation:	{
+					type:	"belongsTo",
+					load:	"lazy"
+				}
+			},
+			sorting:	"sorting",
+			published:	"visible"
+		}
+	},
+	tl_content:	{
+		config:	{
+			dataContainer:	"Table",
+			ptable:	["tl_content", "tl_article"]
+			dynamicPtable:	true
+		},
+		fields:	{
+			id:	"key",
+			pid:	"dynamicParent",
+			ptable:	"parentTable",
+			sorting:	"sorting",
+			invisible:	"hidden"
+		}
+	},
+	tl_page:	{
+		config:	{
+			dataContainer:	"Table",
+			ctable:	["tl_article"],
+			pid:	"tl_page",
+			sorting:	"sorting",
+			published:	"visible"
+		}
+	}
+}
 ```

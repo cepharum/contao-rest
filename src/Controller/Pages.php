@@ -32,6 +32,7 @@
 
 namespace App\Controller;
 
+use App\Entity\TlPage;
 use App\Mapper\AutoMapper;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\DependencyInjection\ParameterBag\ParameterBagInterface;
@@ -39,12 +40,13 @@ use Symfony\Component\Routing\Annotation\Route;
 use Symfony\Component\HttpFoundation\Request;
 
 /**
- * @Route("/api/general")
+ * @Route("/api/page")
  */
-class General extends ApiController {
+class Pages extends ApiController {
 	public function __construct( ParameterBagInterface $parameters, LoggerInterface $logger ) {
 		parent::__construct( $parameters, $logger );
 		$this->mapper = new AutoMapper( $this, $logger );
+		$this->mapper->setEntityClass( TlPage::class );
 	}
 
 	/**
@@ -54,50 +56,5 @@ class General extends ApiController {
 	 */
 	public function getEntityManager() {
 		return $this->getDoctrine()->getEntityManager();
-	}
-
-	/**
-	 * @Route("", methods={"GET", "OPTIONS"})
-	 * @Route("/", methods={"GET", "OPTIONS"})
-	 *
-	 * @param Request $request description of incoming request
-	 * @return Response response to request
-	 */
-	public function listClasses( Request $request ) {
-
-		$meta = $this->getDoctrine()->getEntityManager()->getMetadataFactory()->getAllMetadata();
-
-		$entities = [];
-		foreach ( $meta as $m ) {
-			$name = $m->getName();
-			if ( substr( $name, 0, 13 ) == 'App\Entity\Tl' ) {
-				$name = lcfirst(substr($name, 13));
-			}
-			$entities[] = $name;
-		}
-
-		return $this->json(
-			[ 'items' => $entities, 'count' => count( $entities ) ],
-			200,
-			['content-type' => 'application/json']
-		);
-	}
-
-	/**
-	 * @Route("/{table}",  methods={"GET", "OPTIONS"}, requirements={"table"="\w+"})
-	 * @Route("/{table}/", methods={"GET", "OPTIONS"}, requirements={"table"="\w+"})
-	 *
-	 * @param Request $request description of incoming request
-	 * @return Response response to request
-	 */
-	public function generalListAction( $table, Request $request ) {
-
-		if ( $this->mapper->setEntityClass( $table ) ) {
-			return $this->listAction( $request );
-		}
-
-		return $this->json( [
-			'error' => 'invalid class name',
-		], 400 );
 	}
 }
