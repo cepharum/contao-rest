@@ -122,6 +122,138 @@ abstract class ApiController extends AbstractController {
 		}
 	}
 
+
+
+	/**
+	 * Method queryDatabaseWithCriterias()
+	 *
+	 * This function can be used to get a filtered set of records out of the database table
+	 * connected to the current controller. The result contains the records which match
+	 * all given criterias.
+	 *
+	 * @param array $criteriaArray		Array of criteria-triples [<field-name>, <operator>, <value>],
+	 *										e.g. [ [ 'city', 'eq', 'Berlin' ], [ 'country', 'eq', 'Germany' ] ]
+	 *									If only one criteria-triple is needed, it may be directly given as parameter,
+	 *										e.g. [ 'id', 'eq', '79' ]
+	 * @param string $requestMethod		This string will be used together with $this->checkAccess()
+	 *									to determine if the current user is allowed to access
+	 *									the queried data.
+	 * @param null|array $urlData		If an array is given here, the
+	 * @param null|integer $offset		If this value is set the first found records of the result will be skipped;
+	 * @param null|integer $limit		If this value is set the result will be reduced to maximal $limit found records;
+	 *									Set to null, if you want all records to be returned.
+	 *
+	 * @return Response			The routine delivers a JSON-response
+	 *								either with the requested data or with an appropriate error-message.
+	 * @throws Exception		If one of the arguments can't be processed, an exception is thrown.
+	 */
+	protected function queryDatabaseWithCriterias( $criteriaArray = [], $requestMethod = "GET", $urlData = [], $offset = null, $limit = null ) {
+
+		$class = $this->mapper->getEntityClass();
+
+		// Ensure that parameters are valid:
+		if ( $requestMethod !== null && !is_string( $requestMethod ) ) {
+			throw \Exception('queryDatabaseWithCriteria(): invalid parameter');
+		}
+		if ( !is_array( $criteriaArray ) ) {
+			throw \Exception('queryDatabaseWithCriteria(): invalid parameter');
+		}
+		if ( count( $criteriaArray ) > 0 && is_string( $criteriaArray[0] ) ) {
+			$criteriaArray = [ $criteriaArray ];
+		}
+		foreach ( $criteriaArray as $criteria ) {
+			if ( !is_array( $criteria ) ||
+						( count( $criteria ) != 3 && ( $criteria[1] != 'isNull' || count( $criteria ) != 2 ) ) ||
+						!is_string( $criteria[0] ) || !is_string( $criteria[1] ) ) {
+				throw \Exception('queryDatabaseWithCriteria(): invalid parameter');
+			}
+		}
+		if ( $limit !== null && !is_numeric( $limit ) ) {
+			throw \Exception('queryDatabaseWithCriteria(): invalid parameter');
+		}
+
+		// Ensure that current user may list records:
+		$response = $this->checkAccess( $requestMethod === 'OPTIONS' ? 'GET' : null, 'api:list', [ 'class' => $class ] );
+		if ( $response ) {
+			return $response;
+		}
+
+		// Process the given filters from $urlData and $criteriaArray:
+		$expression = null;
+		$exprBuilder = Criteria::expr();
+		try {
+			if ( is_array( $urlData ) ) {
+				foreach ( $urlData as $name => $value ) {
+					if ( preg_match( '/^\$(?:([^:]+):)?(.+)$/', $value, $match ) ) {
+						$criteriaArray[] = [ $name, $match[1], $match[2] ];
+					} else {
+						$criteriaArray[] = [ $name, 'eq', $value ];
+					}
+				}
+			}
+			foreach ( $criteriaArray as $criteria ) {
+				$nextExpr = null;
+				if ( array_search( $criteria[1], [ 'eq', 'gt', 'lt', 'gte', 'lte', 'neq', 'contains', 'startsWith', 'endWith' ] ) !== false && is_string( $criteria[2] ) ) {
+					$nextExpr = call_user_func( [ $exprBuilder, $criteria[1] ], $criteria[0], $criteria[2] );
+				}
+				else if ( $criteria[1] == 'isNull' ) {
+					$nextExpr = $exprBuilder->isNull( $criteria[0] );
+				}
+				else if ( array_search( $criteria[1], [ 'in', 'notin', 'memberOf' ] ) !== false && is_array( $criteria[2] ) ) {
+					$nextExpr = call_user_func( [ $exprBuilder, $criteria[1] ], $criteria[2] );
+				}
+				else {
+					throw \Exception("queryDatabaseWithCriteria(): unknown comparison {$criteria[1]}");
+				}
+
+				if ($expression == null) {
+					$expression = $nextExpr;
+				}
+				else {
+					$expression = $exprBuilder->andX( $expression, $nextExpr );
+				}
+			}
+		}
+		catch ( \Exception $err ) {
+			return $this->json(
+				[ 'error' => 'error while composing database-query: ' . $err->getMessage() ],
+				404,
+				$this->qualifyHeaders( [ 'content-type' => 'application/json' ] )
+			);
+		}
+
+		$criteria = $this->processCriterion( new Criteria( $expression ) );
+
+		$repo = $this->getDoctrine()->getRepository( $class );
+		$matches = $repo->matching( $criteria );
+		$count   = $matches->count();
+
+		if ( $offset > 0 || $limit > 0 ) {
+			if ( $offset > 0 ) {
+				$criteria->setFirstResult( $offset );
+			}
+			if ( $limit > 0 ) {
+				$criteria->setMaxResults( $limit );
+			}
+			$matches = $repo->matching( $criteria );
+		}
+
+		$matches = $repo->matching( $criteria );
+
+		$mapper = $this->mapper;
+		$items = array_map( function( $item ) use ( $mapper ) {
+			return $mapper->toSerializable( $item, 'list' );
+		}, $matches->toArray() );
+
+		return $this->json(
+			[ 'items' => $items, 'count' => $count ],
+			200,
+			$this->qualifyHeaders( [ 'content-type' => 'application/json' ] )
+		);
+	}
+
+
+
 	/**
 	 * Revises filter used with fetching list of entity's items.
 	 *

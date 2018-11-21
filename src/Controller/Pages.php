@@ -51,10 +51,32 @@ class Pages extends ApiController {
 
 	/**
 	 * Method getEntityManager()
-	 * 
+	 *
 	 * This function is needed by the AutoMapper class to get access to Doctrine's entity manager.
 	 */
 	public function getEntityManager() {
 		return $this->getDoctrine()->getEntityManager();
+	}
+
+	/**
+	 * @Route("/{alias}", methods={"GET", "OPTIONS"}, requirements={"alias"="\w+"})
+	 */
+	public function getPageByAlias( $alias, Request $request ) {
+
+		return $this->queryDatabaseWithCriterias( [ 'alias', 'eq', $alias ], $request->getMethod(), $this->getDataFromUrl( $request->query, 'list' ), null );
+	}
+
+	/**
+	 * @Route("/{id}/{depth}", methods={"GET", "OPTIONS"}, requirements={"id"="\d+", "depth"="\d+"})
+	 */
+	public function getSubPages( $id, $depth ) {
+
+		if ( $depth < 0 ) {
+			$depth = 0;
+		}
+		if ( $depth > 10 ) {
+			$depth = 10;
+		}
+
 	}
 }
