@@ -88,20 +88,20 @@ class Pages extends ApiController {
 		$page = $repository->matching( $criteria )->first();
 
 		if ( $page ) {
-			if ( $type == 'list' || $type == 'tree' ) {
+			if ( $type == 'sub-list' || $type == 'sub-tree' ) {
 				$pageData = [ 'id' => $page->getId(), 'alias' => $page->getAlias(), 'published' => $page->getPublished() ];
 			}
 			else {
 				$pageData = $this->mapper->toSerializable( $page, 'list' );
 			}
-			if ( $type == 'list' || $type == 'list-data' ) {
+			if ( $type == 'sub-list' || $type == 'sub-datalist' ) {
 				$results[] = array_merge( [ '_path' => $path ], $pageData );
 			}
 			else {
 				$results[ 'item' ] = $pageData;
 			}
 		}
-		else if ( $type == 'tree-data' ) {
+		else if ( $type == 'sub-datatree' ) {
 			$page = $repository->find( $id );
 			$results[ 'item' ] = [ 'id' => $page->getId(), 'alias' => $page->getAlias(), 'published' => $page->getPublished() ];
 		}
@@ -117,7 +117,7 @@ class Pages extends ApiController {
 					$childrenData[] = $this->collectSubPages_recursive( $repository, $child->getId(), $maxDepth, $type, $urlData, $depth + 1, array_merge( $path, [ $id ] ) );
 				}
 			}
-			if ( $type == 'list' || $type == 'list-data' ) {
+			if ( $type == 'sub-list' || $type == 'sub-datalist' ) {
 				foreach ( $childrenData as $childData ) {
 					$results = array_merge( $results, $childData );
 				}
@@ -135,29 +135,24 @@ class Pages extends ApiController {
 	 *
 	 * This function is querying Contao's database for a given page and subordinated pages.
 	 *
-	 * @param string $idOrAlias		ID or alias of the first page to look after.
-	 * @param int $maxDepth			Number of levels below first page to look for subordinated pages
-	 *									e.g. 2, to look for direct children and their direct children
-	 * @param null|string $type		Desired format of the response array, may be one of those:
-	 *									'list' (default value)
-	 *											All found pages will be contained in the response
-	 *											as an one-dimensional list,
-	 *											The pages' hierarchy will be represented at every page
-	 *											with an array-field '_path',
-	 *											e.g. '_path' = [3, 7], if the given page is the child
-	 *												of the page with ID 7 and grandchild of the page with ID 3
-	 *											The response will only include basic data about every page,
-	 *											e.g. [ 'id' => 3, 'alias' => 'home', 'published' => 1 ]
-	 *											Like before but the response will contain
-	 *											all the page's data from the database.
-	 *									'tree'
-	 *											All found pages will be contained in the response
-	 *											as a two-dimensional array, following the pages' hierarchy.
-	 *											The response will only include basic data about every page,
-	 *											e.g. [ 'id' => 3, 'alias' => 'home', 'published' => 1 ]
-	 *									'list-data' or 'tree-data'
-	 *											Like before but the response will also contain
-	 *											all the page's data from the database.
+	 * Those format types are supported:
+	 *			'sub-list'
+	 *				All found pages will be contained in the response
+	 *				as an one-dimensional list,
+	 *				The pages' hierarchy will be represented at every page
+	 *				with an array-field '_path',
+	 *				e.g. '_path' = [3, 7], if the given page is the child
+	 *					of the page with ID 7 and grandchild of the page with ID 3
+	 *				The response will only include basic data about every page,
+	 *				e.g. [ 'id' => 3, 'alias' => 'home', 'published' => 1 ]
+	 *			'sub-tree'
+	 *				All found pages will be contained in the response
+	 *				as a two-dimensional array, following the pages' hierarchy.
+	 *				The response will only include basic data about every page,
+	 *				e.g. [ 'id' => 3, 'alias' => 'home', 'published' => 1 ]
+	 *			'sub-datalist' or 'sub-datatree'
+	 *				Like before but the response will also contain
+	 *				all the pages' data from the database.
 	 *
 	 * This API-route might also combined with URL-filters like '?published=1' (but not when $type == 'tree').
 	 * That's what happens then:
@@ -167,11 +162,25 @@ class Pages extends ApiController {
 	 *				all found pages will still be included in the response
 	 *				but only the pages which match the filter will be delivered with full data.
 	 *
-	 * @Route("/{idOrAlias}/{maxDepth}/{type}", methods={"GET", "OPTIONS"}, requirements={"idOrAlias"="\w+", "maxDepth"="\d+"})
+	 * @param null|string $type		Desired format of the response array (e.g. 'sub-list', see below)
+	 * @param string $idOrAlias		ID or alias of the first page to look after.
+	 * @param int $maxDepth			Number of levels below first page to look for subordinated pages
+	 *									e.g. 2, to look for direct children and their direct children
+	 * @return Response
+	 *
+	 * @Route("/{type}/{idOrAlias}/{maxDepth}", methods={"GET", "OPTIONS"}, requirements={"type"="sub-list|sub-tree|sub-datalist|sub-datatree", "idOrAlias"="\w+", "maxDepth"="\d+"})
 	 */
-	public function getSubPages( $idOrAlias, $maxDepth, $type = 'list', Request $request ) {
+	public function getSubPages( $type, $idOrAlias = null, $maxDepth = 20, Request $request ) {
 
 		$repo = $this->getDoctrine()->getRepository( TlPage::class );
+
+		if ( $idOrAlias === null ) {
+			return $this->json(
+				[ 'error' => 'you need to specify a page ID or alias to determine the root page to use' ],
+				404,
+				$this->qualifyHeaders( [ 'content-type' => 'application/json' ] )
+			);
+		}
 
 		$urlData = $this->getDataFromUrl( $request->query, 'list' );
 		if ( ! is_array( $urlData) || count( $urlData ) == 0 ) {
@@ -179,14 +188,14 @@ class Pages extends ApiController {
 		}
 		$maxDepth = max( 0, min( $maxDepth, 20 ) );
 		switch ( $type ) {
-			case 'list':
-			case 'list-data':
-			case 'tree-data':
+			case 'sub-list':
+			case 'sub-datalist':
+			case 'sub-datatree':
 				break;
-			case 'tree':
+			case 'sub-tree':
 				if ( $urlData != null ) {
 					return $this->json(
-						[ 'error' => "can't combine response type 'tree' with url-filters, use type 'list' or 'tree-data' instead" ],
+						[ 'error' => "can't combine response type 'sub-tree' with url-filters, use type 'sub-list' or 'sub-datatree' instead" ],
 						404,
 						$this->qualifyHeaders( [ 'content-type' => 'application/json' ] )
 					);
